@@ -1,0 +1,18 @@
+---
+# Variables spécifiques à RedHat/Rocky Linux
+wordpress_packages:
+  web_server: httpd
+  php_module: php
+  database: mariadb-server
+  php_packages:
+    - php
+    - php-mysqlnd
+    - php-gd
+    - php-xml
+    - php-mbstring
+    - php-curl
+  web_service: httpd
+  db_service: mariadb
+  web_user: apache
+  web_group: apache
+  config_dir: /etc/httpd/conf.d

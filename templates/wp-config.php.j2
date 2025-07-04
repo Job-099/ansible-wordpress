@@ -1,0 +1,43 @@
+<?php
+/**
+ * Configuration WordPress générée par Ansible
+ */
+
+// ** Réglages MySQL ** //
+define('DB_NAME', '{{ wordpress_db_name }}');
+define('DB_USER', '{{ wordpress_db_user }}');
+define('DB_PASSWORD', '{{ wordpress_db_password }}');
+define('DB_HOST', '{{ wordpress_db_host }}');
+define('DB_CHARSET', 'utf8');
+define('DB_COLLATE', '');
+
+/**#@+
+ * Clés uniques d'authentification et salage.
+ */
+define('AUTH_KEY',         '{{ ansible_date_time.epoch }}{{ inventory_hostname }}auth');
+define('SECURE_AUTH_KEY',  '{{ ansible_date_time.epoch }}{{ inventory_hostname }}secure');
+define('LOGGED_IN_KEY',    '{{ ansible_date_time.epoch }}{{ inventory_hostname }}logged');
+define('NONCE_KEY',        '{{ ansible_date_time.epoch }}{{ inventory_hostname }}nonce');
+define('AUTH_SALT',        '{{ ansible_date_time.epoch }}{{ inventory_hostname }}authsalt');
+define('SECURE_AUTH_SALT', '{{ ansible_date_time.epoch }}{{ inventory_hostname }}securesalt');
+define('LOGGED_IN_SALT',   '{{ ansible_date_time.epoch }}{{ inventory_hostname }}loggedsalt');
+define('NONCE_SALT',       '{{ ansible_date_time.epoch }}{{ inventory_hostname }}noncesalt');
+
+/**#@-*/
+
+/**
+ * Préfixe de base de données pour les tables de WordPress.
+ */
+$table_prefix  = 'wp_';
+
+/**
+ * Pour les développeurs : le mode débogage de WordPress.
+ */
+define('WP_DEBUG', false);
+
+/** Chemin absolu vers le dossier de WordPress. */
+if ( !defined('ABSPATH') )
+    define('ABSPATH', dirname(__FILE__) . '/');
+
+/** Réglage des variables de WordPress et de ses fichiers inclus. */
+require_once(ABSPATH . 'wp-settings.php');

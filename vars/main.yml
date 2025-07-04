@@ -1,0 +1,27 @@
+---
+# Variables spécifiques aux distributions
+_wordpress_packages:
+  Debian:
+    web_server: apache2
+    php_module: libapache2-mod-php
+    database: mariadb-server
+    php_packages: "{{ wordpress_php_packages }}"
+    web_service: apache2
+    db_service: mariadb
+    web_user: www-data
+    web_group: www-data
+    config_dir: /etc/apache2/sites-available
+    
+  RedHat:
+    web_server: httpd
+    php_module: php
+    database: mariadb-server
+    php_packages: "{{ wordpress_php_packages | map('regex_replace', '^php', 'php') | list }}"
+    web_service: httpd
+    db_service: mariadb
+    web_user: apache
+    web_group: apache
+    config_dir: /etc/httpd/conf.d
+
+# Variables calculées
+wordpress_packages: "{{ _wordpress_packages[ansible_os_family] }}"

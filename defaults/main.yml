@@ -1,0 +1,32 @@
+---
+# Configuration de base de données
+wordpress_db_name: wordpress
+wordpress_db_user: wpuser
+wordpress_db_password: "{{ vault_wordpress_db_password | default('changeme123') }}"
+wordpress_db_host: localhost
+wordpress_root_password: "{{ vault_mysql_root_password | default('rootpassword123') }}"
+
+# Configuration WordPress
+wordpress_admin_email: admin@localhost
+wordpress_site_title: "Mon Site WordPress"
+wordpress_download_url: https://wordpress.org/latest.zip
+
+# Configuration Apache
+wordpress_document_root: /var/www/html
+wordpress_server_name: localhost
+wordpress_server_admin: "{{ wordpress_admin_email }}"
+
+# Configuration système
+wordpress_php_packages:
+  - php
+  - php-mysql
+  - php-gd
+  - php-xml
+  - php-mbstring
+  - php-curl
+
+# Sécurité
+wordpress_file_permissions: "755"
+wordpress_config_permissions: "640"
+wordpress_owner: www-data
+wordpress_group: www-data

@@ -1,0 +1,18 @@
+---
+# Variables spécifiques à Debian/Ubuntu
+wordpress_packages:
+  web_server: apache2
+  php_module: libapache2-mod-php
+  database: mariadb-server
+  php_packages:
+    - php
+    - php-mysql
+    - php-gd
+    - php-xml
+    - php-mbstring
+    - php-curl
+  web_service: apache2
+  db_service: mariadb
+  web_user: www-data
+  web_group: www-data
+  config_dir: /etc/apache2/sites-available

@@ -1,0 +1,161 @@
+---
+- name: Include OS-specific variables
+  include_vars: "{{ ansible_os_family }}.yml"
+  when: ansible_os_family in ['Debian', 'RedHat']
+
+- name: Update package cache (Debian/Ubuntu)
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: Update package cache (RedHat/Rocky)
+  yum:
+    update_cache: yes
+  when: ansible_os_family == "RedHat"
+
+- name: Install required packages
+  package:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - "{{ wordpress_packages.web_server }}"
+    - "{{ wordpress_packages.php_module }}"
+    - "{{ wordpress_packages.database }}"
+    - wget
+    - unzip
+  notify:
+    - restart web server
+    - restart database
+
+- name: Install PHP packages
+  package:
+    name: "{{ wordpress_packages.php_packages }}"
+    state: present
+  notify: restart web server
+
+- name: Start and enable services
+  systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: yes
+  loop:
+    - "{{ wordpress_packages.web_service }}"
+    - "{{ wordpress_packages.db_service }}"
+
+- name: Remove default web page
+  file:
+    path: "{{ wordpress_document_root }}/index.html"
+    state: absent
+
+- name: Wait for MariaDB to be ready
+  wait_for:
+    port: 3306
+    host: localhost
+    timeout: 30
+
+- name: Set MariaDB root password
+  mysql_user:
+    name: root
+    password: "{{ wordpress_root_password }}"
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    state: present
+  ignore_errors: true
+
+- name: Remove anonymous MySQL users
+  mysql_user:
+    name: ""
+    host_all: yes
+    state: absent
+    login_user: root
+    login_password: "{{ wordpress_root_password }}"
+
+- name: Remove MySQL test database
+  mysql_db:
+    name: test
+    state: absent
+    login_user: root
+    login_password: "{{ wordpress_root_password }}"
+
+- name: Create WordPress database
+  mysql_db:
+    name: "{{ wordpress_db_name }}"
+    state: present
+    login_user: root
+    login_password: "{{ wordpress_root_password }}"
+
+- name: Create WordPress database user
+  mysql_user:
+    name: "{{ wordpress_db_user }}"
+    password: "{{ wordpress_db_password }}"
+    priv: "{{ wordpress_db_name }}.*:ALL"
+    host: "{{ wordpress_db_host }}"
+    state: present
+    login_user: root
+    login_password: "{{ wordpress_root_password }}"
+
+- name: Download WordPress
+  get_url:
+    url: "{{ wordpress_download_url }}"
+    dest: /tmp/latest.zip
+    mode: '0644'
+
+- name: Extract WordPress
+  unarchive:
+    src: /tmp/latest.zip
+    dest: /tmp
+    remote_src: yes
+    creates: /tmp/wordpress
+
+- name: Copy WordPress files
+  copy:
+    src: /tmp/wordpress/
+    dest: "{{ wordpress_document_root }}/"
+    remote_src: yes
+    owner: "{{ wordpress_packages.web_user }}"
+    group: "{{ wordpress_packages.web_group }}"
+    mode: "{{ wordpress_file_permissions }}"
+
+- name: Generate WordPress configuration
+  template:
+    src: wp-config.php.j2
+    dest: "{{ wordpress_document_root }}/wp-config.php"
+    owner: "{{ wordpress_packages.web_user }}"
+    group: "{{ wordpress_packages.web_group }}"
+    mode: "{{ wordpress_config_permissions }}"
+
+- name: Configure Apache virtual host (Debian/Ubuntu)
+  template:
+    src: wordpress.conf.j2
+    dest: "{{ wordpress_packages.config_dir }}/wordpress.conf"
+    backup: yes
+  when: ansible_os_family == "Debian"
+  notify: restart web server
+
+- name: Enable WordPress site (Debian/Ubuntu)
+  command: a2ensite wordpress.conf
+  when: ansible_os_family == "Debian"
+  notify: restart web server
+
+- name: Enable Apache rewrite module (Debian/Ubuntu)
+  apache2_module:
+    name: rewrite
+    state: present
+  when: ansible_os_family == "Debian"
+  notify: restart web server
+
+- name: Configure Apache for WordPress (RedHat/Rocky)
+  template:
+    src: wordpress.conf.j2
+    dest: "{{ wordpress_packages.config_dir }}/wordpress.conf"
+    backup: yes
+  when: ansible_os_family == "RedHat"
+  notify: restart web server
+
+- name: Clean up temporary files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/latest.zip
+    - /tmp/wordpress
