@@ -1,0 +1,5 @@
+---
+- hosts: all
+  become: true
+  roles:
+    - Job-099.ansible-wordpress

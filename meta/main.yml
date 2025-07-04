@@ -1,5 +1,6 @@
 galaxy_info:
   author: Job-099
+  role_name: wordpress
   description: Installation et configuration de WordPress avec Apache et MariaDB
   company: Job-099
   license: MIT

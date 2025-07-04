@@ -35,7 +35,7 @@
   notify: restart web server
 
 - name: Start and enable services
-  systemd:
+  service:
     name: "{{ item }}"
     state: started
     enabled: yes
@@ -159,3 +159,14 @@
   loop:
     - /tmp/latest.zip
     - /tmp/wordpress
+
+- name: Vérifier la présence d'apache2/httpd et mariadb
+  shell: "systemctl status {{ item }} || service {{ item }} status"
+  loop:
+    - "{{ wordpress_packages.web_service }}"
+    - "{{ wordpress_packages.db_service }}"
+  register: service_status
+  ignore_errors: true
+
+- debug:
+    var: service_status.results
