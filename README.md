@@ -31,7 +31,7 @@ wordpress_document_root: /var/www/html         # Racine web
 
 ### 1. Installation du rôle
 ```bash
-ansible-galaxy install votre_nom.wordpress
+ansible-galaxy install Job-099.ansible-wordpress
 ```
 
 ### 2. Création du vault
@@ -51,13 +51,16 @@ vault_mysql_root_password: "votre_mot_de_passe_root"
 - hosts: wordpress_servers
   become: yes
   roles:
-    - role: votre_nom.wordpress
-      vars:
-        wordpress_server_name: "{{ inventory_hostname }}"
-        wordpress_admin_email: admin@mondomaine.com
+    - role: Job-099.ansible-wordpress
 ```
 
 ### 4. Exécution
+
+IMPORTANT ! 
+
+Le lancer depuis le répertoire où se situe l'inventaire
+
+
 ```bash
 ansible-playbook -i inventory playbook.yml --ask-vault-pass
 ```
@@ -74,17 +77,3 @@ ansible-playbook -i inventory playbook.yml --ask-vault-pass
 - Rocky Linux 8, 9
 - CentOS 8, 9
 
-## Sécurité
-
-- Mots de passe stockés dans Ansible Vault
-- Permissions restrictives sur wp-config.php
-- Suppression des utilisateurs MySQL anonymes
-- Suppression de la base de test MySQL
-
-## Licence
-
-MIT
-
-## Auteur
-
-Votre nom (votre.email@example.com)
