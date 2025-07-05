@@ -1,15 +1,15 @@
 ---
 - name: restart web server
-  systemd:
+  service:
     name: "{{ wordpress_packages.web_service }}"
     state: restarted
 
 - name: restart database
-  systemd:
+  service:
     name: "{{ wordpress_packages.db_service }}"
     state: restarted
 
 - name: reload web server
-  systemd:
+  service:
     name: "{{ wordpress_packages.web_service }}"
     state: reloaded
