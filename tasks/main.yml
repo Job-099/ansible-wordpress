@@ -3,6 +3,18 @@
   include_vars: "{{ ansible_os_family }}.yml"
   when: ansible_os_family in ['Debian', 'RedHat']
 
+- name: Installer le module Python PyMySQL (Debian/Ubuntu)
+  apt:
+    name: python3-pymysql
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Installer le module Python PyMySQL (RedHat/Rocky)
+  dnf:
+    name: python3-PyMySQL
+    state: present
+  when: ansible_os_family == "RedHat"
+
 - name: Update package cache (Debian/Ubuntu)
   apt:
     update_cache: yes
@@ -14,34 +26,99 @@
     update_cache: yes
   when: ansible_os_family == "RedHat"
 
-- name: Install required packages
+- name: Install required web/database packages
   package:
     name: "{{ item }}"
     state: present
   loop:
     - "{{ wordpress_packages.web_server }}"
-    - "{{ wordpress_packages.php_module }}"
     - "{{ wordpress_packages.database }}"
     - wget
     - unzip
-  notify:
-    - restart web server
-    - restart database
+
+# --- DEBUG HTTPD ---
+- name: Debug service management system
+  debug:
+    msg: |
+      Service manager: {{ ansible_facts['service_mgr'] }}
+      OS Family: {{ ansible_os_family }}
+      Distribution: {{ ansible_facts['distribution'] }}
+      Version: {{ ansible_facts['distribution_major_version'] }}
+
+- name: Check systemd unit files
+  find:
+    paths: 
+      - /usr/lib/systemd/system
+      - /etc/systemd/system
+    patterns: "httpd*"
+  register: httpd_units
+  when: ansible_facts['service_mgr'] == 'systemd'
+
+- name: Debug found systemd units
+  debug:
+    msg: "Found httpd units: {{ httpd_units.files | map(attribute='path') | list }}"
+  when: ansible_facts['service_mgr'] == 'systemd'
+
+- name: Check if httpd.service exists
+  stat:
+    path: /usr/lib/systemd/system/httpd.service
+  register: httpd_service_file
+
+- name: Debug httpd service file
+  debug:
+    msg: "httpd.service exists: {{ httpd_service_file.stat.exists }}"
+# --- FIN DEBUG HTTPD ---
 
 - name: Install PHP packages
   package:
     name: "{{ wordpress_packages.php_packages }}"
     state: present
-  notify: restart web server
 
-- name: Start and enable services
-  service:
-    name: "{{ item }}"
+# Gestion spéciale pour les environnements conteneurisés
+- name: Check if systemd is available
+  stat:
+    path: /run/systemd/system
+  register: systemd_available
+
+- name: Initialize MariaDB data directory (non-systemd environments)
+  command: mysql_install_db --user=mysql --basedir=/usr --datadir=/var/lib/mysql
+  args:
+    creates: /var/lib/mysql/mysql
+  when: 
+    - not systemd_available.stat.exists
+    - ansible_os_family == "RedHat"
+
+- name: Start MariaDB manually (non-systemd environments)
+  shell: "mysqld_safe --user=mysql --datadir=/var/lib/mysql &"
+  when: 
+    - not systemd_available.stat.exists
+    - ansible_os_family == "RedHat"
+  async: 10
+  poll: 0
+
+# Démarrage normal des services avec systemd
+- name: Start and enable web server (systemd)
+  systemd:
+    name: "{{ wordpress_packages.web_service }}"
     state: started
     enabled: yes
-  loop:
-    - "{{ wordpress_packages.web_service }}"
-    - "{{ wordpress_packages.db_service }}"
+  when: systemd_available.stat.exists
+  notify: restart web server
+
+- name: Start and enable database (systemd)
+  systemd:
+    name: "{{ wordpress_packages.db_service }}"
+    state: started
+    enabled: yes
+  when: systemd_available.stat.exists
+  notify: restart database
+
+# Démarrage alternatif sans systemd
+- name: Start web server (service command)
+  service:
+    name: "{{ wordpress_packages.web_service }}"
+    state: started
+  when: not systemd_available.stat.exists
 
 - name: Remove default web page
   file:
@@ -52,53 +129,65 @@
   wait_for:
     port: 3306
     host: localhost
-    timeout: 30
+    timeout: 60
+    delay: 5
 
-- name: Set MariaDB root password
+# Configuration MySQL avec gestion d'erreurs améliorée
+- name: Check if MySQL root password is already set
+  mysql_user:
+    name: root
+    password: "{{ wordpress_root_password }}"
+    login_user: root
+    login_password: "{{ wordpress_root_password }}"
+    state: present
+  register: mysql_root_check
+  failed_when: false
+  no_log: true
+
+- name: Set MariaDB root password (first time)
   mysql_user:
     name: root
     password: "{{ wordpress_root_password }}"
     login_unix_socket: /var/run/mysqld/mysqld.sock
     state: present
+  when: mysql_root_check.failed
   ignore_errors: true
 
-- name: Remove anonymous MySQL users
+- name: Set MariaDB root password (alternative socket)
   mysql_user:
-    name: ""
-    host_all: yes
-    state: absent
-    login_user: root
-    login_password: "{{ wordpress_root_password }}"
-
-- name: Remove MySQL test database
-  mysql_db:
-    name: test
-    state: absent
-    login_user: root
-    login_password: "{{ wordpress_root_password }}"
-
-- name: Create WordPress database
-  mysql_db:
-    name: "{{ wordpress_db_name }}"
+    name: root
+    password: "{{ wordpress_root_password }}"
+    login_unix_socket: /var/lib/mysql/mysql.sock
     state: present
-    login_user: root
-    login_password: "{{ wordpress_root_password }}"
+  when: 
+    - mysql_root_check.failed
+    - ansible_os_family == "RedHat"
+  ignore_errors: true
 
-- name: Create WordPress database user
-  mysql_user:
-    name: "{{ wordpress_db_user }}"
-    password: "{{ wordpress_db_password }}"
-    priv: "{{ wordpress_db_name }}.*:ALL"
-    host: "{{ wordpress_db_host }}"
-    state: present
-    login_user: root
-    login_password: "{{ wordpress_root_password }}"
+- name: Create WordPress database (shell command)
+  shell: |
+    mysql -uroot -p'{{ wordpress_root_password }}' -e "CREATE DATABASE IF NOT EXISTS {{ wordpress_db_name }} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || \
+    mysql --socket={{ mysql_socket | default('/var/lib/mysql/mysql.sock') }} -uroot -p'{{ wordpress_root_password }}' -e "CREATE DATABASE IF NOT EXISTS {{ wordpress_db_name }} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+  no_log: true
 
-- name: Download WordPress
-  get_url:
-    url: "{{ wordpress_download_url }}"
-    dest: /tmp/latest.zip
-    mode: '0644'
+- name: Create WordPress database user (shell command)
+  shell: |
+    mysql -uroot -p'{{ wordpress_root_password }}' -e "CREATE USER IF NOT EXISTS '{{ wordpress_db_user }}'@'{{ wordpress_db_host }}' IDENTIFIED BY '{{ wordpress_db_password }}';" 2>/dev/null || \
+    mysql --socket={{ mysql_socket | default('/var/lib/mysql/mysql.sock') }} -uroot -p'{{ wordpress_root_password }}' -e "CREATE USER IF NOT EXISTS '{{ wordpress_db_user }}'@'{{ wordpress_db_host }}' IDENTIFIED BY '{{ wordpress_db_password }}';"
+    
+    mysql -uroot -p'{{ wordpress_root_password }}' -e "GRANT ALL PRIVILEGES ON {{ wordpress_db_name }}.* TO '{{ wordpress_db_user }}'@'{{ wordpress_db_host }}';" 2>/dev/null || \
+    mysql --socket={{ mysql_socket | default('/var/lib/mysql/mysql.sock') }} -uroot -p'{{ wordpress_root_password }}' -e "GRANT ALL PRIVILEGES ON {{ wordpress_db_name }}.* TO '{{ wordpress_db_user }}'@'{{ wordpress_db_host }}';"
+    
+    mysql -uroot -p'{{ wordpress_root_password }}' -e "FLUSH PRIVILEGES;" 2>/dev/null || \
+    mysql --socket={{ mysql_socket | default('/var/lib/mysql/mysql.sock') }} -uroot -p'{{ wordpress_root_password }}' -e "FLUSH PRIVILEGES;"
+  no_log: true
+
+- name: Download WordPress with wget
+  shell: |
+    cd /tmp
+    wget -O latest.zip https://wordpress.org/latest.zip
+  args:
+    creates: /tmp/latest.zip
 
 - name: Extract WordPress
   unarchive:
@@ -106,6 +195,14 @@
     dest: /tmp
     remote_src: yes
     creates: /tmp/wordpress
+
+- name: Create web directory if it doesn't exist
+  file:
+    path: "{{ wordpress_document_root }}"
+    state: directory
+    owner: "{{ wordpress_packages.web_user }}"
+    group: "{{ wordpress_packages.web_group }}"
+    mode: '0755'
 
 - name: Copy WordPress files
   copy:
@@ -134,6 +231,8 @@
 
 - name: Enable WordPress site (Debian/Ubuntu)
   command: a2ensite wordpress.conf
+  args:
+    creates: /etc/apache2/sites-enabled/wordpress.conf
   when: ansible_os_family == "Debian"
   notify: restart web server
 
@@ -152,6 +251,22 @@
   when: ansible_os_family == "RedHat"
   notify: restart web server
 
+- name: Set SELinux context for web files (RedHat/Rocky)
+  sefcontext:
+    target: "{{ wordpress_document_root }}(/.*)?"
+    setype: httpd_exec_t
+    state: present
+  when: 
+    - ansible_os_family == "RedHat"
+    - ansible_selinux.status == "enabled"
+  notify: restart web server
+
+- name: Apply SELinux context (RedHat/Rocky)
+  command: restorecon -R {{ wordpress_document_root }}
+  when: 
+    - ansible_os_family == "RedHat"
+    - ansible_selinux.status == "enabled"
+
 - name: Clean up temporary files
   file:
     path: "{{ item }}"
@@ -160,13 +275,21 @@
     - /tmp/latest.zip
     - /tmp/wordpress
 
-- name: Vérifier la présence d'apache2/httpd et mariadb
-  shell: "systemctl status {{ item }} || service {{ item }} status"
+# Vérifications finales
+- name: Verify services are running
+  service_facts:
+
+- name: Display service status
+  debug:
+    msg: "{{ item }} is {{ ansible_facts.services[item + '.service']['state'] | default('not found') }}"
   loop:
     - "{{ wordpress_packages.web_service }}"
     - "{{ wordpress_packages.db_service }}"
-  register: service_status
-  ignore_errors: true
+  when: ansible_facts.services is defined
 
-- debug:
-    var: service_status.results
+- name: S'assurer qu'Apache est démarré
+  service:
+    name: apache2
+    state: started
+    enabled: yes
+  when: ansible_os_family == "Debian"
